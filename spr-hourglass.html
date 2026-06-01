@@ -11,63 +11,87 @@
     --line:#23304a;
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  html,body{background:radial-gradient(1200px 800px at 50% -10%, #16203a 0%, var(--bg0) 60%);color:var(--ink);
-    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;min-height:100%}
+  html,body{color:var(--ink);min-height:100%;
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg0);overflow-x:hidden}
+  /* animated drifting background glow */
+  body::before{content:"";position:fixed;inset:-20%;z-index:-1;
+    background:
+      radial-gradient(600px 420px at 30% 12%, rgba(244,180,0,.10), transparent 60%),
+      radial-gradient(700px 520px at 72% 30%, rgba(80,120,200,.12), transparent 60%),
+      radial-gradient(1200px 800px at 50% -10%, #16203a 0%, var(--bg0) 60%);
+    animation:drift 18s ease-in-out infinite alternate}
+  @keyframes drift{from{transform:translate3d(-2%, -1%,0) scale(1.02)}
+                   to{transform:translate3d(2%, 2%,0) scale(1.06)}}
   .wrap{max-width:980px;margin:0 auto;padding:36px 20px 60px}
   header{text-align:center;margin-bottom:8px}
   .kicker{letter-spacing:.28em;text-transform:uppercase;font-size:12px;color:var(--gold);font-weight:700}
   h1{font-size:clamp(24px,4.4vw,40px);line-height:1.1;margin:10px 0 6px;font-weight:800}
   .sub{color:var(--muted);font-size:15px;max-width:640px;margin:0 auto}
-  .stage{display:grid;grid-template-columns:minmax(0,360px) minmax(0,1fr);gap:28px;align-items:center;
-    margin:28px 0 8px}
+  /* reveal-on-load motion */
+  .reveal{opacity:0;transform:translateY(18px);animation:rise .9s cubic-bezier(.2,.7,.2,1) forwards}
+  @keyframes rise{to{opacity:1;transform:none}}
+  .stage{display:grid;grid-template-columns:minmax(0,360px) minmax(0,1fr);gap:28px;align-items:center;margin:28px 0 8px}
   @media(max-width:760px){.stage{grid-template-columns:1fr}}
-  .canvas-card{background:linear-gradient(180deg,#0e1626,#0b1120);border:1px solid var(--line);
+  .canvas-card{position:relative;background:linear-gradient(180deg,#0e1626,#0b1120);border:1px solid var(--line);
     border-radius:20px;padding:18px;display:flex;justify-content:center;
     box-shadow:0 30px 60px -30px rgba(0,0,0,.8),inset 0 1px 0 rgba(255,255,255,.04)}
   canvas{max-width:100%;height:auto;display:block}
-  .readout .big{font-size:clamp(46px,9vw,76px);font-weight:900;line-height:.95;
+  .livecount{position:absolute;left:0;right:0;bottom:10px;text-align:center;font-size:12.5px;color:var(--muted)}
+  .livecount b{color:var(--amber);font-variant-numeric:tabular-nums}
+  .readout .big{font-size:clamp(46px,9vw,76px);font-weight:900;line-height:.95;font-variant-numeric:tabular-nums;
     background:linear-gradient(180deg,var(--amber),var(--gold));-webkit-background-clip:text;background-clip:text;color:transparent}
   .readout .big small{font-size:.32em;-webkit-text-fill-color:var(--muted);color:var(--muted);font-weight:700;letter-spacing:.04em}
   .readout .lead{font-size:16px;color:var(--ink);margin:8px 0 2px;font-weight:600}
   .readout .note{font-size:13.5px;color:var(--muted);max-width:420px;line-height:1.5}
   .pill{display:inline-flex;gap:8px;align-items:center;background:#0e1830;border:1px solid var(--line);
     color:var(--muted);font-size:12px;border-radius:999px;padding:6px 12px;margin-top:14px}
-  .dot{width:8px;height:8px;border-radius:50%;background:var(--gold);box-shadow:0 0 10px var(--gold)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--gold);box-shadow:0 0 10px var(--gold);
+    animation:pulse 1.8s ease-in-out infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 0 6px var(--gold);opacity:.7}50%{box-shadow:0 0 16px var(--gold);opacity:1}}
   .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:30px}
   @media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}}
-  .stat{background:linear-gradient(180deg,#0e1626,#0b1120);border:1px solid var(--line);border-radius:16px;padding:16px}
-  .stat .v{font-size:26px;font-weight:800;color:var(--amber)}
+  .stat{background:linear-gradient(180deg,#0e1626,#0b1120);border:1px solid var(--line);border-radius:16px;padding:16px;
+    transition:transform .25s ease,border-color .25s ease}
+  .stat:hover{transform:translateY(-4px);border-color:var(--gold)}
+  .stat .v{font-size:26px;font-weight:800;color:var(--amber);font-variant-numeric:tabular-nums}
   .stat .l{font-size:12.5px;color:var(--muted);margin-top:4px;line-height:1.35}
-  .scenarios{margin-top:30px;background:linear-gradient(180deg,#0e1626,#0b1120);border:1px solid var(--line);border-radius:16px;padding:8px 18px}
-  .scenarios h3{font-size:13px;text-transform:uppercase;letter-spacing:.14em;color:var(--gold);padding:14px 0 4px}
-  .row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:11px 0;border-top:1px solid var(--line)}
-  .row:first-of-type{border-top:none}
-  .row .name{font-size:14px;color:var(--ink)}
-  .row .name span{display:block;color:var(--muted);font-size:12px}
-  .row .days{font-size:20px;font-weight:800;color:var(--amber);white-space:nowrap}
+  .scenarios{margin-top:30px;background:linear-gradient(180deg,#0e1626,#0b1120);border:1px solid var(--line);border-radius:16px;padding:8px 18px 18px}
+  .scenarios h3{font-size:13px;text-transform:uppercase;letter-spacing:.14em;color:var(--gold);padding:14px 0 8px}
+  .srow{padding:11px 0;border-top:1px solid var(--line)}
+  .srow:first-of-type{border-top:none}
+  .srow .top{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+  .srow .name{font-size:14px;color:var(--ink)}
+  .srow .name span{display:block;color:var(--muted);font-size:12px}
+  .srow .days{font-size:20px;font-weight:800;color:var(--amber);white-space:nowrap;font-variant-numeric:tabular-nums}
+  .bar{height:8px;border-radius:6px;background:#0b1322;margin-top:9px;overflow:hidden}
+  .bar i{display:block;height:100%;width:0;border-radius:6px;
+    background:linear-gradient(90deg,#6b4e0f,var(--amber));box-shadow:0 0 12px rgba(255,207,92,.4);
+    transition:width 1.4s cubic-bezier(.2,.7,.2,1)}
   footer{margin-top:28px;color:var(--muted);font-size:12px;line-height:1.6;text-align:center}
   footer a{color:#8fb4ff;text-decoration:none}
   .ctrl{display:flex;gap:10px;justify-content:center;margin-top:16px}
   button{background:#0e1830;color:var(--ink);border:1px solid var(--line);border-radius:10px;
-    padding:8px 16px;font-size:13px;cursor:pointer;font-weight:600}
+    padding:8px 16px;font-size:13px;cursor:pointer;font-weight:600;transition:.2s}
   button:hover{border-color:var(--gold);color:var(--amber)}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <div class="kicker">Energy Security Infographic</div>
-    <h1>How Long Would America's Oil Reserve Last?</h1>
-    <p class="sub">The U.S. Strategic Petroleum Reserve (SPR) is an emergency stockpile. If it were the
+    <div class="kicker reveal">Energy Security Infographic</div>
+    <h1 class="reveal" style="animation-delay:.08s">How Long Would America's Oil Reserve Last?</h1>
+    <p class="sub reveal" style="animation-delay:.16s">The U.S. Strategic Petroleum Reserve (SPR) is an emergency stockpile. If it were the
     nation's <em>only</em> source of oil, here's how fast the hourglass would empty.</p>
   </header>
 
   <div class="stage">
-    <div class="canvas-card">
+    <div class="canvas-card reveal" style="animation-delay:.2s">
       <canvas id="hg" width="340" height="460" aria-label="Hourglass filled with oil draining"></canvas>
+      <div class="livecount">Reserve remaining: <b id="liveBbl">398</b> M barrels &middot; <b id="liveDays">20.0</b> days left</div>
     </div>
-    <div class="readout">
-      <div class="big">~20<small> days</small></div>
+    <div class="readout reveal" style="animation-delay:.28s">
+      <div class="big"><span id="bigNum">0</span><small> days</small></div>
       <div class="lead">if the SPR alone had to fuel the entire United States.</div>
       <p class="note">About <strong>398 million barrels</strong> in the reserve &divide; roughly
       <strong>20 million barrels</strong> consumed nationwide every day &asymp; <strong>20 days</strong> of total supply.
@@ -76,38 +100,38 @@
     </div>
   </div>
 
-  <div class="ctrl">
+  <div class="ctrl reveal" style="animation-delay:.34s">
     <button id="replay">&#8635; Replay drain</button>
     <button id="toggle">&#10073;&#10073; Pause</button>
   </div>
 
   <div class="grid">
-    <div class="stat"><div class="v">398M</div><div class="l">Barrels held in the SPR (spring 2026)</div></div>
-    <div class="stat"><div class="v">714M</div><div class="l">Maximum authorized storage capacity</div></div>
-    <div class="stat"><div class="v">~20M</div><div class="l">Barrels of oil the U.S. uses per day</div></div>
-    <div class="stat"><div class="v">4</div><div class="l">Underground salt-cavern sites on the Gulf Coast</div></div>
+    <div class="stat reveal" style="animation-delay:.30s"><div class="v"><span class="count" data-to="398" data-suffix="M">0</span></div><div class="l">Barrels held in the SPR (spring 2026)</div></div>
+    <div class="stat reveal" style="animation-delay:.38s"><div class="v"><span class="count" data-to="714" data-suffix="M">0</span></div><div class="l">Maximum authorized storage capacity</div></div>
+    <div class="stat reveal" style="animation-delay:.46s"><div class="v">~<span class="count" data-to="20" data-suffix="M">0</span></div><div class="l">Barrels of oil the U.S. uses per day</div></div>
+    <div class="stat reveal" style="animation-delay:.54s"><div class="v"><span class="count" data-to="4">0</span></div><div class="l">Underground salt-cavern sites on the Gulf Coast</div></div>
   </div>
 
-  <div class="scenarios">
+  <div class="scenarios reveal" style="animation-delay:.5s">
     <h3>Same reserve, different questions</h3>
-    <div class="row">
-      <div class="name">Sole source for all U.S. oil demand
-        <span>398M &divide; ~20M barrels/day</span></div>
-      <div class="days">~20 days</div>
+    <div class="srow">
+      <div class="top"><div class="name">Sole source for all U.S. oil demand<span>398M &divide; ~20M barrels/day</span></div>
+        <div class="days">~<span class="count" data-to="20">0</span> days</div></div>
+      <div class="bar"><i data-w="22"></i></div>
     </div>
-    <div class="row">
-      <div class="name">Covering net crude imports only
-        <span>398M &divide; ~6M barrels/day</span></div>
-      <div class="days">~66 days</div>
+    <div class="srow">
+      <div class="top"><div class="name">Covering net crude imports only<span>398M &divide; ~6M barrels/day</span></div>
+        <div class="days">~<span class="count" data-to="66">0</span> days</div></div>
+      <div class="bar"><i data-w="73"></i></div>
     </div>
-    <div class="row">
-      <div class="name">Max legal release rate (~4.4M bbl/day)
-        <span>How fast it could physically be drawn down</span></div>
-      <div class="days">~90 days</div>
+    <div class="srow">
+      <div class="top"><div class="name">Max legal release rate (~4.4M bbl/day)<span>How fast it could physically be drawn down</span></div>
+        <div class="days">~<span class="count" data-to="90">0</span> days</div></div>
+      <div class="bar"><i data-w="100"></i></div>
     </div>
   </div>
 
-  <footer>
+  <footer class="reveal" style="animation-delay:.6s">
     Reserve level ~398M barrels (late April 2026; 411M at end-2025), capacity 714M barrels, ~4 storage sites.
     U.S. daily petroleum consumption ~20M barrels/day. Figures rounded for illustration.<br>
     Sources:
@@ -121,165 +145,150 @@
 const cv = document.getElementById('hg');
 const ctx = cv.getContext('2d');
 const W = cv.width, H = cv.height;
-
-// Geometry of the hourglass (centered)
 const cx = W/2;
-const topY = 60, midY = H/2, botY = H-60;   // glass interior bounds
-const halfTop = 110;      // half-width at the top/bottom rims
-const neckHalf = 9;       // half-width at the narrow neck
+const topY = 60, midY = H/2, botY = H-60;
+const halfTop = 110, neckHalf = 9;
 
-// Returns the half-width of the glass interior at a given y (linear taper to neck)
 function halfWidthAt(y){
-  if (y <= midY){
-    const t = (y - topY) / (midY - topY);      // 0 at top rim -> 1 at neck
-    return halfTop + (neckHalf - halfTop) * t;
-  } else {
-    const t = (y - midY) / (botY - midY);       // 0 at neck -> 1 at bottom rim
-    return neckHalf + (halfTop - neckHalf) * t;
-  }
+  if (y <= midY){ const t=(y-topY)/(midY-topY); return halfTop+(neckHalf-halfTop)*t; }
+  const t=(y-midY)/(botY-midY); return neckHalf+(halfTop-neckHalf)*t;
 }
 
-// Animation state: progress 0 -> 1 means fully drained from top to bottom
-let progress = 0, playing = true, last = 0;
-const DURATION = 9000; // ms for a full drain cycle
-const startFill = 0.56; // reserve is ~56% of capacity -> top bulb starts 56% full
+let progress=0, playing=true, last=0;
+const DURATION=9000;
+const startFill=0.56;
+const TOTAL_BBL=398, TOTAL_DAYS=20.0;
 
-function drawWoodCap(yTop, h){
-  const grad = ctx.createLinearGradient(0, yTop, 0, yTop+h);
-  grad.addColorStop(0,'#5a4326'); grad.addColorStop(.5,'#3d2c16'); grad.addColorStop(1,'#2a1d0e');
-  ctx.fillStyle = grad;
-  roundRect(cx-halfTop-22, yTop, (halfTop+22)*2, h, 9); ctx.fill();
-  ctx.fillStyle='rgba(255,255,255,.06)';
-  roundRect(cx-halfTop-22, yTop, (halfTop+22)*2, h*0.28, 9); ctx.fill();
-}
-function roundRect(x,y,w,h,r){
-  ctx.beginPath();
-  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
-  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
-}
+// ---- motion-graphics particle systems ----
+const droplets=[]; // falling through neck
+const bubbles=[];  // rising in bottom oil
+function spawnDroplet(){ droplets.push({y:midY-10, vy:1.6+Math.random()*1.2, x:cx+(Math.random()*4-2), r:1.6+Math.random()*1.4, life:1}); }
+function spawnBubble(surf){ bubbles.push({x:cx+(Math.random()*90-45)*0.6, y:botY-6, r:1+Math.random()*2.4, vy:.3+Math.random()*.6, surf}); }
 
-// Trace the glass outline path (both bulbs) for clipping/stroking
+function roundRect(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function drawWoodCap(yTop,h){const g=ctx.createLinearGradient(0,yTop,0,yTop+h);g.addColorStop(0,'#5a4326');g.addColorStop(.5,'#3d2c16');g.addColorStop(1,'#2a1d0e');ctx.fillStyle=g;roundRect(cx-halfTop-22,yTop,(halfTop+22)*2,h,9);ctx.fill();ctx.fillStyle='rgba(255,255,255,.06)';roundRect(cx-halfTop-22,yTop,(halfTop+22)*2,h*0.28,9);ctx.fill();}
+
 function glassPath(){
-  ctx.beginPath();
-  ctx.moveTo(cx-halfTop, topY);
-  // left side, top bulb down to neck
-  for(let y=topY; y<=midY; y+=4){ ctx.lineTo(cx-halfWidthAt(y), y); }
-  // left side, neck down to bottom
-  for(let y=midY; y<=botY; y+=4){ ctx.lineTo(cx-halfWidthAt(y), y); }
-  ctx.lineTo(cx-halfTop, botY);
-  ctx.lineTo(cx+halfTop, botY);
-  // right side back up
-  for(let y=botY; y>=midY; y-=4){ ctx.lineTo(cx+halfWidthAt(y), y); }
-  for(let y=midY; y>=topY; y-=4){ ctx.lineTo(cx+halfWidthAt(y), y); }
-  ctx.lineTo(cx+halfTop, topY);
-  ctx.closePath();
+  ctx.beginPath();ctx.moveTo(cx-halfTop,topY);
+  for(let y=topY;y<=midY;y+=4)ctx.lineTo(cx-halfWidthAt(y),y);
+  for(let y=midY;y<=botY;y+=4)ctx.lineTo(cx-halfWidthAt(y),y);
+  ctx.lineTo(cx-halfTop,botY);ctx.lineTo(cx+halfTop,botY);
+  for(let y=botY;y>=midY;y-=4)ctx.lineTo(cx+halfWidthAt(y),y);
+  for(let y=midY;y>=topY;y-=4)ctx.lineTo(cx+halfWidthAt(y),y);
+  ctx.lineTo(cx+halfTop,topY);ctx.closePath();
 }
 
-// Fill oil in the TOP bulb between y=surfaceY and the neck
-function fillTopOil(surfaceY){
-  ctx.save(); glassPath(); ctx.clip();
-  const grad = ctx.createLinearGradient(0, surfaceY, 0, midY);
-  grad.addColorStop(0,'#7a5a12'); grad.addColorStop(1,'#3a2806');
-  ctx.fillStyle = grad;
+// wavy oil surface helper: returns y offset for a given x, animated
+function wave(x,amp,len,phase){return Math.sin(x/len + phase)*amp;}
+
+function fillTopOil(surfaceY,phase){
+  ctx.save();glassPath();ctx.clip();
+  const g=ctx.createLinearGradient(0,surfaceY,0,midY);g.addColorStop(0,'#7a5a12');g.addColorStop(1,'#3a2806');ctx.fillStyle=g;
+  const hw=halfWidthAt(surfaceY);
   ctx.beginPath();
-  ctx.moveTo(cx-halfWidthAt(surfaceY), surfaceY);
-  for(let y=surfaceY; y<=midY; y+=3){ ctx.lineTo(cx-halfWidthAt(y), y); }
-  for(let y=midY; y>=surfaceY; y-=3){ ctx.lineTo(cx+halfWidthAt(y), y); }
-  ctx.closePath(); ctx.fill();
-  // glossy surface ellipse
-  const hw = halfWidthAt(surfaceY);
-  ctx.fillStyle='rgba(255,207,92,.55)';
-  ctx.beginPath(); ctx.ellipse(cx, surfaceY, hw, 5, 0, 0, Math.PI*2); ctx.fill();
+  // wavy top
+  for(let x=-hw;x<=hw;x+=4){const sx=cx+x;const sy=surfaceY+wave(sx,2.5,18,phase);x===-hw?ctx.moveTo(sx,sy):ctx.lineTo(sx,sy);}
+  for(let y=surfaceY;y<=midY;y+=3)ctx.lineTo(cx+halfWidthAt(y),y);
+  for(let y=midY;y>=surfaceY;y-=3)ctx.lineTo(cx-halfWidthAt(y),y);
+  ctx.closePath();ctx.fill();
+  ctx.fillStyle='rgba(255,207,92,.5)';
+  ctx.beginPath();for(let x=-hw;x<=hw;x+=4){const sx=cx+x;const sy=surfaceY+wave(sx,2.5,18,phase);x===-hw?ctx.moveTo(sx,sy):ctx.lineTo(sx,sy);}ctx.lineTo(cx+hw,surfaceY+5);ctx.lineTo(cx-hw,surfaceY+5);ctx.closePath();ctx.fill();
   ctx.restore();
 }
 
-// Fill oil mound in the BOTTOM bulb from the bottom up to surfaceY
-function fillBottomOil(surfaceY){
-  ctx.save(); glassPath(); ctx.clip();
-  const grad = ctx.createLinearGradient(0, surfaceY, 0, botY);
-  grad.addColorStop(0,'#6b4e0f'); grad.addColorStop(1,'#2a1c05');
-  ctx.fillStyle = grad;
+function fillBottomOil(surfaceY,phase){
+  ctx.save();glassPath();ctx.clip();
+  const g=ctx.createLinearGradient(0,surfaceY,0,botY);g.addColorStop(0,'#6b4e0f');g.addColorStop(1,'#2a1c05');ctx.fillStyle=g;
+  const hw=halfWidthAt(surfaceY);
   ctx.beginPath();
-  ctx.moveTo(cx-halfWidthAt(surfaceY), surfaceY);
-  for(let y=surfaceY; y<=botY; y+=3){ ctx.lineTo(cx-halfWidthAt(y), y); }
-  ctx.lineTo(cx+halfTop, botY);
-  for(let y=botY; y>=surfaceY; y-=3){ ctx.lineTo(cx+halfWidthAt(y), y); }
-  ctx.closePath(); ctx.fill();
-  const hw = halfWidthAt(surfaceY);
+  for(let x=-hw;x<=hw;x+=4){const sx=cx+x;const sy=surfaceY+wave(sx,2.2,16,phase*1.3);x===-hw?ctx.moveTo(sx,sy):ctx.lineTo(sx,sy);}
+  for(let y=surfaceY;y<=botY;y+=3)ctx.lineTo(cx+halfWidthAt(y),y);
+  ctx.lineTo(cx-halfTop,botY);
+  for(let y=botY;y>=surfaceY;y-=3)ctx.lineTo(cx-halfWidthAt(y),y);
+  ctx.closePath();ctx.fill();
+  // bubbles
+  ctx.fillStyle='rgba(255,222,140,.35)';
+  for(const b of bubbles){if(b.y>surfaceY){ctx.beginPath();ctx.arc(b.x,b.y,b.r,0,Math.PI*2);ctx.fill();}}
   ctx.fillStyle='rgba(255,207,92,.45)';
-  ctx.beginPath(); ctx.ellipse(cx, surfaceY, hw, 4, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath();for(let x=-hw;x<=hw;x+=4){const sx=cx+x;const sy=surfaceY+wave(sx,2.2,16,phase*1.3);x===-hw?ctx.moveTo(sx,sy):ctx.lineTo(sx,sy);}ctx.lineTo(cx+hw,surfaceY+4);ctx.lineTo(cx-hw,surfaceY+4);ctx.closePath();ctx.fill();
   ctx.restore();
+  return surfaceY;
 }
 
-function draw(){
+function draw(t){
+  const phase=(t||0)/280;
   ctx.clearRect(0,0,W,H);
 
-  // wooden caps top & bottom
-  drawWoodCap(topY-26, 26);
-  drawWoodCap(botY, 26);
-  // posts connecting caps
-  ctx.fillStyle='#3d2c16';
-  roundRect(cx-halfTop-20, topY-10, 12, (botY-topY)+20, 5); ctx.fill();
-  roundRect(cx+halfTop+8, topY-10, 12, (botY-topY)+20, 5); ctx.fill();
+  // opaque background matching the card (keeps exports artifact-free)
+  const bg=ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,'#0e1626');bg.addColorStop(1,'#0b1120');
+  ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
 
-  // glass body fill (subtle blue tint) + highlight
-  ctx.save(); glassPath();
-  const gg = ctx.createLinearGradient(cx-halfTop,0,cx+halfTop,0);
-  gg.addColorStop(0,'rgba(140,170,210,.10)'); gg.addColorStop(.5,'rgba(200,225,255,.05)');
-  gg.addColorStop(1,'rgba(140,170,210,.14)');
-  ctx.fillStyle=gg; ctx.fill(); ctx.restore();
+  // soft pulsing glow behind glass
+  const glow=ctx.createRadialGradient(cx,midY,30,cx,midY,210);
+  const a=0.07+0.035*Math.sin(phase*0.6);
+  glow.addColorStop(0,`rgba(255,190,70,${a})`);glow.addColorStop(1,'rgba(255,190,70,0)');
+  ctx.fillStyle=glow;ctx.fillRect(0,0,W,H);
 
-  // amount of oil remaining in top bulb. startFill of the top bulb, draining with progress.
-  const remaining = startFill * (1 - progress);          // 0..startFill
-  // surface goes from a starting line down toward the neck as it drains
-  const topSurfaceStart = topY + (midY-topY)*(1-startFill);
-  const topSurfaceY = topSurfaceStart + (midY - topSurfaceStart) * progress;
-  if (remaining > 0.001) fillTopOil(topSurfaceY);
+  drawWoodCap(topY-26,26);drawWoodCap(botY,26);
+  ctx.fillStyle='#3d2c16';roundRect(cx-halfTop-20,topY-10,12,(botY-topY)+20,5);ctx.fill();roundRect(cx+halfTop+8,topY-10,12,(botY-topY)+20,5);ctx.fill();
 
-  // bottom mound grows with progress (fills proportionally)
-  const filled = startFill * progress;
-  const botSurfaceY = botY - (botY-midY)*Math.min(filled/startFill,1)*0.92;
-  if (filled > 0.001) fillBottomOil(botSurfaceY);
+  ctx.save();glassPath();const gg=ctx.createLinearGradient(cx-halfTop,0,cx+halfTop,0);gg.addColorStop(0,'rgba(140,170,210,.10)');gg.addColorStop(.5,'rgba(200,225,255,.05)');gg.addColorStop(1,'rgba(140,170,210,.14)');ctx.fillStyle=gg;ctx.fill();ctx.restore();
 
-  // falling oil stream through the neck while draining
-  if (progress>0.001 && progress<0.999){
-    ctx.strokeStyle='rgba(255,200,80,.85)'; ctx.lineWidth=3; ctx.beginPath();
-    ctx.moveTo(cx, midY-14); ctx.lineTo(cx, botSurfaceY-2); ctx.stroke();
-    // drip splash
-    ctx.fillStyle='rgba(255,207,92,.6)';
-    const dy = botSurfaceY - 6 - (Math.sin(Date.now()/120)*4);
-    ctx.beginPath(); ctx.ellipse(cx, dy, 4, 6, 0, 0, Math.PI*2); ctx.fill();
+  const remaining=startFill*(1-progress);
+  const topSurfaceStart=topY+(midY-topY)*(1-startFill);
+  const topSurfaceY=topSurfaceStart+(midY-topSurfaceStart)*progress;
+  if(remaining>0.001) fillTopOil(topSurfaceY,phase);
+
+  const filled=startFill*progress;
+  const botSurfaceY=botY-(botY-midY)*Math.min(filled/startFill,1)*0.92;
+  if(filled>0.001) fillBottomOil(botSurfaceY,phase);
+
+  // droplet particle stream through the neck
+  if(progress>0.003 && progress<0.997){
+    if(Math.random()<0.6) spawnDroplet();
+    ctx.strokeStyle='rgba(255,200,80,.6)';ctx.lineWidth=2.5;ctx.beginPath();ctx.moveTo(cx,midY-12);ctx.lineTo(cx,botSurfaceY-4);ctx.stroke();
   }
+  ctx.fillStyle='rgba(255,207,92,.85)';
+  for(let i=droplets.length-1;i>=0;i--){const d=droplets[i];d.y+=d.vy;d.vy+=0.12;if(d.y>=botSurfaceY-3){if(Math.random()<.5)spawnBubble(botSurfaceY);droplets.splice(i,1);continue;}ctx.beginPath();ctx.ellipse(d.x,d.y,d.r,d.r*1.5,0,0,Math.PI*2);ctx.fill();}
+  // advance bubbles
+  for(let i=bubbles.length-1;i>=0;i--){const b=bubbles[i];b.y-=b.vy;if(b.y<=b.surf+1)bubbles.splice(i,1);}
 
-  // glass outline + neck rings
-  glassPath();
-  ctx.lineWidth=3; ctx.strokeStyle='rgba(210,230,255,.55)'; ctx.stroke();
-  ctx.lineWidth=1; ctx.strokeStyle='rgba(255,255,255,.18)';
-  ctx.beginPath(); ctx.moveTo(cx-neckHalf-2,midY); ctx.lineTo(cx+neckHalf+2,midY); ctx.stroke();
+  glassPath();ctx.lineWidth=3;ctx.strokeStyle='rgba(210,230,255,.55)';ctx.stroke();
+  ctx.lineWidth=1;ctx.strokeStyle='rgba(255,255,255,.18)';ctx.beginPath();ctx.moveTo(cx-neckHalf-2,midY);ctx.lineTo(cx+neckHalf+2,midY);ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,.22)';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(cx-halfTop+10,topY+8);for(let y=topY+8;y<=midY-20;y+=6)ctx.lineTo(cx-halfWidthAt(y)+8,y);ctx.stroke();
 
-  // left-edge specular highlight
-  ctx.strokeStyle='rgba(255,255,255,.22)'; ctx.lineWidth=2; ctx.beginPath();
-  ctx.moveTo(cx-halfTop+10, topY+8);
-  for(let y=topY+8;y<=midY-20;y+=6){ ctx.lineTo(cx-halfWidthAt(y)+8, y); }
-  ctx.stroke();
+  // live readout under the glass
+  const bblLeft=Math.max(0,TOTAL_BBL*(1-progress));
+  document.getElementById('liveBbl').textContent=Math.round(bblLeft);
+  document.getElementById('liveDays').textContent=(TOTAL_DAYS*(1-progress)).toFixed(1);
 }
 
 function frame(t){
-  if(!last) last=t;
-  const dt = t-last; last=t;
-  if(playing){
-    progress += dt/DURATION;
-    if(progress>=1){ progress=1; playing=false; setTimeout(()=>{progress=0;playing=true;}, 1400); }
-  }
-  draw();
-  requestAnimationFrame(frame);
+  if(!last)last=t;const dt=t-last;last=t;
+  if(playing){progress+=dt/DURATION;if(progress>=1){progress=1;playing=false;setTimeout(()=>{progress=0;playing=true;},1500);}}
+  draw(t);requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
-document.getElementById('replay').onclick = ()=>{ progress=0; playing=true; };
-document.getElementById('toggle').onclick = (e)=>{
-  playing=!playing; e.target.innerHTML = playing ? '&#10073;&#10073; Pause' : '&#9654; Play';
-};
+document.getElementById('replay').onclick=()=>{progress=0;playing=true;};
+document.getElementById('toggle').onclick=e=>{playing=!playing;e.target.innerHTML=playing?'&#10073;&#10073; Pause':'&#9654; Play';};
+
+// ---- count-up animation for big number, stat cards, scenarios ----
+function animateCount(el,to,dur,suffix){
+  const start=performance.now();const from=0;
+  function step(now){const p=Math.min(1,(now-start)/dur);const e=1-Math.pow(1-p,3);
+    el.textContent=Math.round(from+(to-from)*e)+(suffix||'');
+    if(p<1)requestAnimationFrame(step);}
+  requestAnimationFrame(step);
+}
+window.addEventListener('load',()=>{
+  animateCount(document.getElementById('bigNum'),20,1400);
+  document.querySelectorAll('.count').forEach((el,i)=>{
+    setTimeout(()=>animateCount(el,+el.dataset.to,1200,el.dataset.suffix||''),200+i*90);
+  });
+  setTimeout(()=>document.querySelectorAll('.bar i').forEach(i=>i.style.width=i.dataset.w+'%'),500);
+});
 </script>
 </body>
 </html>
