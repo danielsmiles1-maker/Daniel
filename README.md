@@ -10,12 +10,13 @@ browser mic ──► /api/converse ──► Deepgram Nova-3 (speech → text)
 browser plays ◄── WAV audio ◄──── Deepgram Aura-2 "Theia" (text → speech)
 ```
 
-- **Brain:** Claude (`claude-sonnet-4-6` by default — bump to `claude-opus-4-8` for
-  depth, `claude-haiku-4-5` for speed).
+- **Brain:** Claude (`claude-opus-4-8` by default — set `MODEL=claude-sonnet-4-6`
+  for faster, lower-cost replies, or `claude-haiku-4-5` for fastest).
 - **Voice in:** Deepgram Nova-3 STT.
 - **Voice out:** Deepgram Aura-2 "Theia" TTS.
 - **Live info:** Claude's built-in web search tool (`web_search_20260209`).
-- **Memory:** single in-process conversation (last 20 turns). Resettable from the UI.
+- **Memory:** last 20 turns, **persisted to `history.json`** so it survives restarts.
+  Resettable from the UI.
 
 ## Setup
 
@@ -50,7 +51,8 @@ Tune behaviour via environment variables (or edit the config block at the top of
 | `AGENT_NAME`      | `Ada`              | What the agent calls itself / UI title |
 | `USER_NAME`       | `Daniel`           | Who it's talking to                   |
 | `PORT`            | `4444`             | Server port                           |
-| `MODEL` (in code) | `claude-sonnet-4-6`| Reasoning model                       |
+| `MODEL`           | `claude-opus-4-8`  | Reasoning model                       |
+| `HISTORY_FILE`    | `history.json`     | Where conversation memory is stored   |
 | `VOICE` (in code) | `aura-2-theia-en`  | TTS voice                             |
 
 The persona, reply length, and tone live in `SYSTEM_PROMPT` in `server.py` — edit

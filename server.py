@@ -23,6 +23,7 @@ Run
 """
 
 import os
+import json
 import base64
 
 import requests
@@ -32,13 +33,14 @@ from anthropic import Anthropic
 # ───────────────────────────── Config ──────────────────────────────
 PORT = int(os.getenv("PORT", "4444"))
 VOICE = "aura-2-theia-en"            # Deepgram Aura-2 "Theia" (American female)
-MODEL = "claude-sonnet-4-6"          # bump to claude-opus-4-8 for depth, haiku-4-5 for speed
+MODEL = os.getenv("MODEL", "claude-opus-4-8")     # opus = depth; sonnet-4-6 = faster, haiku-4-5 = fastest
 STT_MODEL = "nova-3"
 ENABLE_WEB_SEARCH = True
 MAX_TOKENS = 400
 HISTORY_TURNS = 20
 ASSISTANT_NAME = os.getenv("AGENT_NAME", "Ada")   # what the agent calls itself
 USER_NAME = os.getenv("USER_NAME", "Daniel")      # who it's talking to
+HISTORY_FILE = os.getenv("HISTORY_FILE", "history.json")  # persisted across restarts
 
 SYSTEM_PROMPT = (
     f"You are {ASSISTANT_NAME}, {USER_NAME}'s personal voice assistant. You are being "
@@ -57,7 +59,29 @@ SYSTEM_PROMPT = (
 )
 
 app = Flask(__name__)
-history = []   # single-session conversation memory (fine for a personal dev server)
+
+
+# ──────────────────────────── Memory ───────────────────────────────
+def load_history():
+    """Restore conversation memory from disk so it survives restarts."""
+    try:
+        with open(HISTORY_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def save_history():
+    """Persist the last HISTORY_TURNS messages to disk (best-effort)."""
+    try:
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(history[-HISTORY_TURNS:], f)
+    except OSError:
+        pass
+
+
+history = load_history()   # conversation memory, persisted across restarts
 
 
 # ──────────────────────────── Pipeline ─────────────────────────────
@@ -122,6 +146,7 @@ def health():
 @app.post("/api/reset")
 def reset():
     history.clear()
+    save_history()
     return jsonify(ok=True)
 
 
@@ -147,6 +172,7 @@ def converse():
 
         reply = ask_claude(history)
         history.append({"role": "assistant", "content": reply})
+        save_history()
 
         audio_b64 = base64.b64encode(synthesize(reply)).decode("ascii")
         return jsonify(user_text=user_text, reply_text=reply, audio_base64=audio_b64)
