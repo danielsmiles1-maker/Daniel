@@ -1,0 +1,625 @@
+#!/usr/bin/env python3
+"""
+Daniel — personal voice AI agent (local dev server).
+
+Serves a browser UI at http://localhost:4444 and proxies the voice pipeline
+server-side (so your API keys never touch the browser):
+
+    browser mic ──► /api/converse ──► Deepgram Nova-3 (STT)
+                                       └─► Claude (reasoning + web search)
+    browser plays ◄── base64 WAV ◄──── Deepgram Aura-2 "theia" (TTS)
+
+Setup
+-----
+    pip install -r requirements.txt
+
+    export DEEPGRAM_API_KEY="dg_..."
+    export ANTHROPIC_API_KEY="sk-ant-..."
+
+Run
+---
+    python server.py
+    # then open http://localhost:4444  (hold the button to talk; release to send)
+"""
+
+import os
+import sys
+import json
+import base64
+import secrets
+from functools import wraps
+
+import requests
+from flask import (Flask, request, jsonify, Response,
+                   session, redirect, abort)
+from werkzeug.security import generate_password_hash, check_password_hash
+from anthropic import Anthropic
+
+# Load config from a .env file if present — both the working directory and (when
+# packaged as a standalone executable) the folder next to the binary. This is how
+# the frozen app gets its keys/password, since a double-click has no shell env.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    if getattr(sys, "frozen", False):
+        load_dotenv(os.path.join(os.path.dirname(sys.executable), ".env"))
+except ImportError:
+    pass
+
+
+def resource_base():
+    """Directory that holds bundled data (static/). Differs when frozen."""
+    if getattr(sys, "frozen", False):
+        return sys._MEIPASS          # PyInstaller extraction dir
+    return os.path.dirname(os.path.abspath(__file__))
+
+# ───────────────────────────── Config ──────────────────────────────
+PORT = int(os.getenv("PORT", "4444"))
+VOICE = "aura-2-theia-en"            # Deepgram Aura-2 "Theia" (American female)
+MODEL = os.getenv("MODEL", "claude-opus-4-8")     # opus = depth; sonnet-4-6 = faster, haiku-4-5 = fastest
+STT_MODEL = "nova-3"
+ENABLE_WEB_SEARCH = True
+MAX_TOKENS = 400
+HISTORY_TURNS = 20
+ASSISTANT_NAME = os.getenv("AGENT_NAME", "Daniel Junior")   # what the agent calls itself
+USER_NAME = os.getenv("USER_NAME", "Daniel")      # who it's talking to
+HISTORY_FILE = os.getenv("HISTORY_FILE", "history.json")  # persisted across restarts
+
+SYSTEM_PROMPT = (
+    f"You are {ASSISTANT_NAME}, {USER_NAME}'s personal voice assistant. You are being "
+    "spoken aloud, so:\n"
+    f"- You're speaking with {USER_NAME}. Address them naturally; you don't need to say "
+    "their name in every reply.\n"
+    "- Keep replies to 2-4 sentences unless explicitly asked to go deeper. "
+    "No bullet points, no markdown, no headings - this is speech.\n"
+    "- Be warm, direct, and quick-witted. Dry humour is welcome. Skip filler like "
+    "'great question' and excessive caveats.\n"
+    "- You can discuss and debate: take a position, give reasons, push back when "
+    f"{USER_NAME} is wrong rather than just agreeing.\n"
+    "- If a request is genuinely ambiguous, ask one short clarifying question.\n"
+    "- When you use web results, give the bottom line first, then one sentence on why "
+    "it matters. Don't read out long URLs."
+)
+
+app = Flask(__name__,
+            static_folder=os.path.join(resource_base(), "static"),
+            static_url_path="/static")
+
+
+# ───────────────────────────── Auth ────────────────────────────────
+# Session signing key. Set SECRET_KEY in the environment so logins survive a
+# restart; otherwise we generate an ephemeral one (you'll just have to log in
+# again after each restart).
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    SECRET_KEY = secrets.token_hex(32)
+    print("  [auth] No SECRET_KEY set — using a temporary one (sessions reset on restart).")
+app.secret_key = SECRET_KEY
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    # Set SESSION_COOKIE_SECURE=1 when serving over HTTPS (recommended in prod).
+    SESSION_COOKIE_SECURE=bool(os.getenv("SESSION_COOKIE_SECURE")),
+)
+
+APP_USERNAME = os.getenv("APP_USERNAME", "daniel")
+
+# Password resolution (most secure first):
+#   APP_PASSWORD_HASH  — a werkzeug hash (best; the plaintext never touches env)
+#   APP_PASSWORD       — plaintext, hashed once at startup
+#   neither            — generate a random one and print it so you can log in
+if os.getenv("APP_PASSWORD_HASH"):
+    PASSWORD_HASH = os.getenv("APP_PASSWORD_HASH")
+elif os.getenv("APP_PASSWORD"):
+    PASSWORD_HASH = generate_password_hash(os.getenv("APP_PASSWORD"))
+else:
+    _temp_pw = secrets.token_urlsafe(9)
+    PASSWORD_HASH = generate_password_hash(_temp_pw)
+    print(f"  [auth] No APP_PASSWORD set — temporary login for this run:\n"
+          f"        username: {APP_USERNAME}\n"
+          f"        password: {_temp_pw}\n"
+          f"        (set APP_PASSWORD or APP_PASSWORD_HASH to make it permanent)")
+
+
+def login_required(view):
+    """Gate a route behind a logged-in session.
+
+    Browser navigations get redirected to /login; API (XHR/fetch) calls get a
+    401 JSON so the front-end can react instead of rendering HTML into JSON.
+    """
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if session.get("user") == APP_USERNAME:
+            return view(*args, **kwargs)
+        if request.path.startswith("/api/"):
+            return jsonify(error="Not authenticated.", login_required=True), 401
+        return redirect("/login")
+    return wrapped
+
+
+# ──────────────────────────── Memory ───────────────────────────────
+def load_history():
+    """Restore conversation memory from disk so it survives restarts."""
+    try:
+        with open(HISTORY_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def save_history():
+    """Persist the last HISTORY_TURNS messages to disk (best-effort)."""
+    try:
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(history[-HISTORY_TURNS:], f)
+    except OSError:
+        pass
+
+
+history = load_history()   # conversation memory, persisted across restarts
+
+
+# ──────────────────────────── Pipeline ─────────────────────────────
+def dg_key():
+    return os.getenv("DEEPGRAM_API_KEY")
+
+
+def transcribe(audio_bytes, mimetype):
+    r = requests.post(
+        "https://api.deepgram.com/v1/listen",
+        params={"model": STT_MODEL, "smart_format": "true", "punctuate": "true"},
+        headers={"Authorization": f"Token {dg_key()}", "Content-Type": mimetype or "audio/webm"},
+        data=audio_bytes, timeout=30,
+    )
+    r.raise_for_status()
+    return r.json()["results"]["channels"][0]["alternatives"][0]["transcript"].strip()
+
+
+def synthesize(text):
+    r = requests.post(
+        "https://api.deepgram.com/v1/speak",
+        params={"model": VOICE},  # REST default: linear16 / wav / 24 kHz
+        headers={"Authorization": f"Token {dg_key()}", "Content-Type": "application/json"},
+        json={"text": text}, timeout=30,
+    )
+    r.raise_for_status()
+    return r.content
+
+
+def ask_claude(messages):
+    client = Anthropic()  # reads ANTHROPIC_API_KEY
+    kwargs = dict(model=MODEL, max_tokens=MAX_TOKENS, system=SYSTEM_PROMPT, messages=messages)
+    if ENABLE_WEB_SEARCH:
+        # _20260209 adds dynamic filtering and is supported on Sonnet 4.6 / Opus 4.6+.
+        kwargs["tools"] = [{"type": "web_search_20260209", "name": "web_search", "max_uses": 3}]
+    resp = client.messages.create(**kwargs)
+    parts = [b.text.strip() for b in resp.content
+             if getattr(b, "type", None) == "text" and b.text.strip()]
+    return " ".join(parts) or "I'm not sure how to answer that one."
+
+
+# ──────────────────────────── Routes ───────────────────────────────
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if session.get("user") == APP_USERNAME:
+        return redirect("/")
+    error = ""
+    if request.method == "POST":
+        username = (request.form.get("username") or "").strip()
+        password = request.form.get("password") or ""
+        if username == APP_USERNAME and check_password_hash(PASSWORD_HASH, password):
+            session.clear()
+            session["user"] = APP_USERNAME
+            session.permanent = True
+            return redirect("/")
+        error = "Wrong username or password."
+    html = (LOGIN_HTML
+            .replace("__NAME__", ASSISTANT_NAME)
+            .replace("__ERROR__", error))
+    return Response(html, mimetype="text/html")
+
+
+@app.post("/logout")
+def logout():
+    session.clear()
+    return redirect("/login")
+
+
+@app.get("/")
+@login_required
+def index():
+    html = (INDEX_HTML
+            .replace("__VOICE__", VOICE)
+            .replace("__MODEL__", MODEL)
+            .replace("__NAME__", ASSISTANT_NAME))
+    return Response(html, mimetype="text/html")
+
+
+@app.get("/manifest.webmanifest")
+def manifest():
+    data = {
+        "name": f"{ASSISTANT_NAME} — voice agent",
+        "short_name": ASSISTANT_NAME,
+        "description": f"{USER_NAME}'s personal voice AI assistant.",
+        "start_url": "/",
+        "scope": "/",
+        "display": "standalone",
+        "orientation": "portrait",
+        "background_color": "#160a1d",
+        "theme_color": "#2D1238",
+        "icons": [
+            {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png"},
+            {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png"},
+            {"src": "/static/icon-maskable-512.png", "sizes": "512x512",
+             "type": "image/png", "purpose": "maskable"},
+        ],
+    }
+    return Response(json.dumps(data), mimetype="application/manifest+json")
+
+
+@app.get("/sw.js")
+def service_worker():
+    # Served from root so its scope controls the whole app.
+    return Response(SERVICE_WORKER_JS, mimetype="application/javascript")
+
+
+@app.get("/api/health")
+def health():
+    return jsonify(
+        ok=True,
+        deepgram_key=bool(os.getenv("DEEPGRAM_API_KEY")),
+        anthropic_key=bool(os.getenv("ANTHROPIC_API_KEY")),
+        voice=VOICE, model=MODEL, name=ASSISTANT_NAME,
+    )
+
+
+@app.post("/api/reset")
+@login_required
+def reset():
+    history.clear()
+    save_history()
+    return jsonify(ok=True)
+
+
+@app.post("/api/converse")
+@login_required
+def converse():
+    if not os.getenv("DEEPGRAM_API_KEY") or not os.getenv("ANTHROPIC_API_KEY"):
+        return jsonify(error="Set DEEPGRAM_API_KEY and ANTHROPIC_API_KEY, then restart the server."), 400
+
+    user_text = (request.form.get("text") or "").strip()
+    try:
+        if not user_text:
+            f = request.files.get("audio")
+            if not f:
+                return jsonify(error="No audio or text provided."), 400
+            user_text = transcribe(f.read(), f.mimetype)
+
+        if not user_text:
+            return jsonify(user_text="", reply_text="Sorry, I didn't catch that.", audio_base64=None)
+
+        history.append({"role": "user", "content": user_text})
+        if len(history) > HISTORY_TURNS:
+            del history[:-HISTORY_TURNS]
+
+        reply = ask_claude(history)
+        history.append({"role": "assistant", "content": reply})
+        save_history()
+
+        audio_b64 = base64.b64encode(synthesize(reply)).decode("ascii")
+        return jsonify(user_text=user_text, reply_text=reply, audio_base64=audio_b64)
+
+    except requests.HTTPError as e:
+        return jsonify(error=f"Upstream API error: {e}"), 502
+    except Exception as e:
+        return jsonify(error=str(e)), 500
+
+
+# ──────────────────────────── Front-end ────────────────────────────
+# App-shell service worker: cache static assets + the shell for offline launch;
+# never cache the live API (voice/chat must hit the network).
+SERVICE_WORKER_JS = r"""
+const CACHE = 'dj-shell-v2';
+const ASSETS = [
+  '/', '/manifest.webmanifest',
+  '/static/icon-192.png', '/static/icon-512.png',
+  '/static/icon-maskable-512.png', '/static/apple-touch-icon.png',
+];
+
+self.addEventListener('install', e => {
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+});
+
+self.addEventListener('activate', e => {
+  e.waitUntil(
+    caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch', e => {
+  const req = e.request;
+  if (req.method !== 'GET') return;                  // never cache POSTs (the API)
+  const url = new URL(req.url);
+  if (url.pathname.startsWith('/api/')) return;      // always go to network for the agent
+
+  if (req.mode === 'navigate') {
+    // Network-first for the shell so updates show; fall back to cache offline.
+    e.respondWith(
+      fetch(req).then(res => {
+        // Only cache the real app shell — never a login redirect/page.
+        if (res.ok && !res.redirected) {
+          const copy = res.clone();
+          caches.open(CACHE).then(c => c.put('/', copy));
+        }
+        return res;
+      }).catch(() => caches.match('/'))
+    );
+    return;
+  }
+
+  // Cache-first for static assets.
+  e.respondWith(caches.match(req).then(hit => hit || fetch(req)));
+});
+"""
+
+LOGIN_HTML = r"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__NAME__ · sign in</title>
+<meta name="theme-color" content="#2D1238">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{ --royal:#3D1B4F; --magenta:#C8378F; --deep:#2D1238; --ink:#EDE7F0; --muted:#9B8AA6; }
+  *{box-sizing:border-box}
+  body{
+    margin:0; min-height:100vh; color:var(--ink); font-family:"JetBrains Mono",ui-monospace,monospace;
+    background:radial-gradient(1200px 600px at 50% -10%, #43204f 0%, var(--deep) 55%, #160a1d 100%);
+    display:flex; align-items:center; justify-content:center; padding:24px;
+  }
+  .card{ width:100%; max-width:360px; text-align:center; }
+  .logo{ width:84px; height:84px; border-radius:22px; margin:0 auto 18px; display:block; box-shadow:0 10px 30px rgba(200,55,143,.35); }
+  h1{ font-family:"Bebas Neue",sans-serif; font-weight:400; font-size:40px; letter-spacing:2px; margin:0 0 4px; }
+  h1 .dot{ color:var(--magenta); }
+  .sub{ font-size:11px; color:var(--muted); letter-spacing:.5px; margin-bottom:22px; }
+  form{ display:flex; flex-direction:column; gap:10px; }
+  input{ background:#1f0f29; border:1px solid #5a3a68; color:var(--ink); font-family:inherit; font-size:14px; padding:12px 14px; border-radius:10px; }
+  input:focus{ outline:none; border-color:var(--magenta); }
+  button{ background:radial-gradient(circle at 30% 25%, #e24fa6, var(--magenta) 60%, var(--royal)); border:none; color:#fff; font-family:"Bebas Neue",sans-serif; letter-spacing:1px; font-size:18px; padding:12px; border-radius:10px; cursor:pointer; box-shadow:0 8px 24px rgba(200,55,143,.35); }
+  button:hover{ transform:translateY(-1px); }
+  .err{ color:#ffb3c7; font-size:12px; min-height:16px; margin-top:6px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <img class="logo" src="/static/icon-192.png" alt="">
+    <h1>__NAME__<span class="dot">.</span></h1>
+    <div class="sub">personal voice agent · sign in to continue</div>
+    <form method="post" action="/login" autocomplete="on">
+      <input name="username" type="text" placeholder="Username" autocomplete="username" autofocus required>
+      <input name="password" type="password" placeholder="Password" autocomplete="current-password" required>
+      <button type="submit">SIGN&nbsp;IN</button>
+    </form>
+    <div class="err">__ERROR__</div>
+  </div>
+</body>
+</html>"""
+
+INDEX_HTML = r"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__NAME__ · voice agent</title>
+<meta name="theme-color" content="#2D1238">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="__NAME__">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --royal:#3D1B4F; --magenta:#C8378F; --deep:#2D1238;
+    --ink:#EDE7F0; --muted:#9B8AA6;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; min-height:100vh; color:var(--ink);
+    font-family:"JetBrains Mono",ui-monospace,monospace;
+    background:radial-gradient(1200px 600px at 50% -10%, #43204f 0%, var(--deep) 55%, #160a1d 100%);
+    display:flex; justify-content:center;
+  }
+  .app{width:100%; max-width:760px; padding:28px 20px 16px; display:flex; flex-direction:column; min-height:100vh}
+  header{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px}
+  .brand{display:flex; align-items:baseline; gap:10px}
+  .brand h1{font-family:"Bebas Neue",sans-serif; font-weight:400; font-size:42px; letter-spacing:2px; margin:0; line-height:1}
+  .brand h1 .dot{color:var(--magenta)}
+  .brand .sub{font-size:11px; color:var(--muted); letter-spacing:.5px}
+  .pill{font-size:11px; padding:6px 12px; border-radius:999px; border:1px solid #5a3a68; color:var(--muted); white-space:nowrap}
+  .pill.live{color:#fff; background:var(--magenta); border-color:var(--magenta); box-shadow:0 0 18px rgba(200,55,143,.5)}
+  .pill.think{color:#fff; background:var(--royal); border-color:#6c3f80}
+  .pill.err{color:#fff; background:#7a1f3d; border-color:#a8294f}
+  .btn-ghost{background:transparent; border:1px solid #5a3a68; color:var(--muted); font-family:inherit; font-size:11px; padding:6px 12px; border-radius:8px; cursor:pointer}
+  .btn-ghost:hover{color:var(--ink); border-color:var(--magenta)}
+  #log{flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:10px; padding:6px 2px 16px}
+  .bubble{max-width:80%; padding:11px 14px; border-radius:14px; font-size:13.5px; line-height:1.5; white-space:pre-wrap; word-wrap:break-word}
+  .bubble.you{align-self:flex-end; background:var(--royal); border:1px solid #5a3a68; border-bottom-right-radius:4px}
+  .bubble.claude{align-self:flex-start; background:rgba(200,55,143,.10); border:1px solid rgba(200,55,143,.35); border-bottom-left-radius:4px}
+  .controls{display:flex; flex-direction:column; align-items:center; gap:14px; padding:10px 0 6px}
+  #talk{
+    width:108px; height:108px; border-radius:50%; border:none; cursor:pointer;
+    background:radial-gradient(circle at 30% 25%, #e24fa6, var(--magenta) 55%, var(--royal));
+    color:#fff; font-family:"Bebas Neue",sans-serif; letter-spacing:1px; font-size:17px;
+    box-shadow:0 10px 30px rgba(200,55,143,.35); transition:transform .12s ease, box-shadow .12s ease;
+    user-select:none; touch-action:none;
+  }
+  #talk:hover{transform:translateY(-1px)}
+  #talk.rec{transform:scale(1.06); box-shadow:0 0 0 8px rgba(200,55,143,.18), 0 0 40px rgba(200,55,143,.6)}
+  .hint{font-size:11px; color:var(--muted)}
+  .textrow{display:flex; gap:8px; width:100%}
+  #text{flex:1; background:#1f0f29; border:1px solid #5a3a68; color:var(--ink); font-family:inherit; font-size:13px; padding:10px 12px; border-radius:10px}
+  #text:focus{outline:none; border-color:var(--magenta)}
+  #sendText{background:var(--royal); border:1px solid #6c3f80; color:var(--ink); font-family:inherit; font-size:12px; padding:0 16px; border-radius:10px; cursor:pointer}
+  #sendText:hover{background:#4d2563}
+  footer{font-size:10px; color:var(--muted); text-align:center; padding-top:12px; letter-spacing:.4px; border-top:1px solid #3a2247; margin-top:8px}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand">
+      <h1>__NAME__<span class="dot">.</span></h1>
+      <span class="sub">personal voice agent · localhost:4444</span>
+    </div>
+    <div style="display:flex; gap:8px; align-items:center">
+      <span id="status" class="pill">Idle</span>
+      <button id="install" class="btn-ghost" style="display:none">Install</button>
+      <button id="reset" class="btn-ghost">Reset</button>
+      <button id="logout" class="btn-ghost">Logout</button>
+    </div>
+  </header>
+
+  <div id="log"></div>
+
+  <div class="controls">
+    <button id="talk">HOLD&nbsp;TO&nbsp;TALK</button>
+    <div class="hint">Hold the button, speak, release — or type below</div>
+    <div class="textrow">
+      <input id="text" type="text" placeholder="Type a message to __NAME__…" autocomplete="off">
+      <button id="sendText">Send</button>
+    </div>
+  </div>
+
+  <footer>Voice: __VOICE__ · Brain: __MODEL__ · Personal — Confidential</footer>
+</div>
+
+<script>
+const statusEl=document.getElementById('status');
+const talkBtn=document.getElementById('talk');
+const log=document.getElementById('log');
+const textInput=document.getElementById('text');
+let stream=null, recorder=null, chunks=[], busy=false;
+
+function setStatus(s, cls){ statusEl.textContent=s; statusEl.className='pill '+(cls||''); }
+
+function addBubble(role, text){
+  const d=document.createElement('div');
+  d.className='bubble '+role; d.textContent=text;
+  log.appendChild(d); log.scrollTop=log.scrollHeight;
+}
+
+async function ensureMic(){
+  if(stream) return stream;
+  stream=await navigator.mediaDevices.getUserMedia({audio:true});
+  return stream;
+}
+
+async function startRec(){
+  if(busy) return;
+  try{ await ensureMic(); }catch(e){ setStatus('Mic blocked','err'); return; }
+  chunks=[];
+  recorder=new MediaRecorder(stream);
+  recorder.ondataavailable=e=>{ if(e.data.size>0) chunks.push(e.data); };
+  recorder.onstop=handleStop;
+  recorder.start();
+  talkBtn.classList.add('rec');
+  setStatus('Listening…','live');
+}
+
+function stopRec(){
+  if(recorder && recorder.state!=='inactive') recorder.stop();
+  talkBtn.classList.remove('rec');
+}
+
+async function handleStop(){
+  const type=recorder.mimeType||'audio/webm';
+  const blob=new Blob(chunks,{type});
+  if(blob.size===0){ setStatus('Idle'); return; }
+  const fd=new FormData();
+  fd.append('audio', blob, 'speech.webm');
+  await send(fd);
+}
+
+async function sendText(){
+  const t=textInput.value.trim();
+  if(!t || busy) return;
+  textInput.value='';
+  const fd=new FormData(); fd.append('text', t);
+  await send(fd);
+}
+
+async function send(fd){
+  busy=true; setStatus('Thinking…','think');
+  try{
+    const r=await fetch('/api/converse',{method:'POST', body:fd});
+    if(r.status===401){ location.href='/login'; return; }
+    const data=await r.json();
+    if(data.error){ addBubble('claude','⚠️ '+data.error); setStatus('Idle'); busy=false; return; }
+    if(data.user_text) addBubble('you', data.user_text);
+    if(data.reply_text) addBubble('claude', data.reply_text);
+    if(data.audio_base64){ setStatus('Speaking…','live'); await play(data.audio_base64); }
+    setStatus('Idle');
+  }catch(e){ addBubble('claude','⚠️ '+e.message); setStatus('Idle'); }
+  busy=false;
+}
+
+function play(b64){
+  return new Promise(res=>{
+    const bin=atob(b64); const arr=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+    const a=new Audio(URL.createObjectURL(new Blob([arr],{type:'audio/wav'})));
+    a.onended=res; a.onerror=res; a.play().catch(res);
+  });
+}
+
+talkBtn.addEventListener('pointerdown', e=>{ e.preventDefault(); startRec(); });
+talkBtn.addEventListener('pointerup',   e=>{ e.preventDefault(); stopRec(); });
+talkBtn.addEventListener('pointerleave',()=>{ if(recorder && recorder.state==='recording') stopRec(); });
+document.getElementById('sendText').addEventListener('click', sendText);
+textInput.addEventListener('keydown', e=>{ if(e.key==='Enter') sendText(); });
+document.getElementById('reset').addEventListener('click', async ()=>{
+  const r=await fetch('/api/reset',{method:'POST'});
+  if(r.status===401){ location.href='/login'; return; }
+  log.innerHTML=''; setStatus('Idle');
+});
+document.getElementById('logout').addEventListener('click', ()=>{
+  fetch('/logout',{method:'POST'}).finally(()=>{ location.href='/login'; });
+});
+
+// ── Installable app (PWA) ──
+const installBtn=document.getElementById('install');
+let deferredPrompt=null;
+window.addEventListener('beforeinstallprompt', e=>{
+  e.preventDefault(); deferredPrompt=e; installBtn.style.display='';
+});
+installBtn.addEventListener('click', async ()=>{
+  if(!deferredPrompt) return;
+  deferredPrompt.prompt();
+  await deferredPrompt.userChoice;
+  deferredPrompt=null; installBtn.style.display='none';
+});
+window.addEventListener('appinstalled', ()=>{ installBtn.style.display='none'; });
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=> navigator.serviceWorker.register('/sw.js').catch(()=>{}));
+}
+setStatus('Idle');
+</script>
+</body>
+</html>"""
+
+
+if __name__ == "__main__":
+    print(f"\n  {ASSISTANT_NAME} — {USER_NAME}'s voice agent  →  http://localhost:{PORT}\n")
+    app.run(host="127.0.0.1", port=PORT, debug=True, use_reloader=False)
