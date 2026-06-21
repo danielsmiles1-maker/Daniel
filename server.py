@@ -38,7 +38,7 @@ STT_MODEL = "nova-3"
 ENABLE_WEB_SEARCH = True
 MAX_TOKENS = 400
 HISTORY_TURNS = 20
-ASSISTANT_NAME = os.getenv("AGENT_NAME", "Ada")   # what the agent calls itself
+ASSISTANT_NAME = os.getenv("AGENT_NAME", "Daniel Junior")   # what the agent calls itself
 USER_NAME = os.getenv("USER_NAME", "Daniel")      # who it's talking to
 HISTORY_FILE = os.getenv("HISTORY_FILE", "history.json")  # persisted across restarts
 
@@ -133,6 +133,34 @@ def index():
     return Response(html, mimetype="text/html")
 
 
+@app.get("/manifest.webmanifest")
+def manifest():
+    data = {
+        "name": f"{ASSISTANT_NAME} — voice agent",
+        "short_name": ASSISTANT_NAME,
+        "description": f"{USER_NAME}'s personal voice AI assistant.",
+        "start_url": "/",
+        "scope": "/",
+        "display": "standalone",
+        "orientation": "portrait",
+        "background_color": "#160a1d",
+        "theme_color": "#2D1238",
+        "icons": [
+            {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png"},
+            {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png"},
+            {"src": "/static/icon-maskable-512.png", "sizes": "512x512",
+             "type": "image/png", "purpose": "maskable"},
+        ],
+    }
+    return Response(json.dumps(data), mimetype="application/manifest+json")
+
+
+@app.get("/sw.js")
+def service_worker():
+    # Served from root so its scope controls the whole app.
+    return Response(SERVICE_WORKER_JS, mimetype="application/javascript")
+
+
 @app.get("/api/health")
 def health():
     return jsonify(
@@ -184,12 +212,64 @@ def converse():
 
 
 # ──────────────────────────── Front-end ────────────────────────────
+# App-shell service worker: cache static assets + the shell for offline launch;
+# never cache the live API (voice/chat must hit the network).
+SERVICE_WORKER_JS = r"""
+const CACHE = 'dj-shell-v1';
+const ASSETS = [
+  '/', '/manifest.webmanifest',
+  '/static/icon-192.png', '/static/icon-512.png',
+  '/static/icon-maskable-512.png', '/static/apple-touch-icon.png',
+];
+
+self.addEventListener('install', e => {
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+});
+
+self.addEventListener('activate', e => {
+  e.waitUntil(
+    caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch', e => {
+  const req = e.request;
+  if (req.method !== 'GET') return;                  // never cache POSTs (the API)
+  const url = new URL(req.url);
+  if (url.pathname.startsWith('/api/')) return;      // always go to network for the agent
+
+  if (req.mode === 'navigate') {
+    // Network-first for the shell so updates show; fall back to cache offline.
+    e.respondWith(
+      fetch(req).then(res => {
+        const copy = res.clone();
+        caches.open(CACHE).then(c => c.put('/', copy));
+        return res;
+      }).catch(() => caches.match('/'))
+    );
+    return;
+  }
+
+  // Cache-first for static assets.
+  e.respondWith(caches.match(req).then(hit => hit || fetch(req)));
+});
+"""
+
 INDEX_HTML = r"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__NAME__ · voice agent</title>
+<meta name="theme-color" content="#2D1238">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="__NAME__">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -249,6 +329,7 @@ INDEX_HTML = r"""<!doctype html>
     </div>
     <div style="display:flex; gap:8px; align-items:center">
       <span id="status" class="pill">Idle</span>
+      <button id="install" class="btn-ghost" style="display:none">Install</button>
       <button id="reset" class="btn-ghost">Reset</button>
     </div>
   </header>
@@ -353,6 +434,23 @@ textInput.addEventListener('keydown', e=>{ if(e.key==='Enter') sendText(); });
 document.getElementById('reset').addEventListener('click', async ()=>{
   await fetch('/api/reset',{method:'POST'}); log.innerHTML=''; setStatus('Idle');
 });
+
+// ── Installable app (PWA) ──
+const installBtn=document.getElementById('install');
+let deferredPrompt=null;
+window.addEventListener('beforeinstallprompt', e=>{
+  e.preventDefault(); deferredPrompt=e; installBtn.style.display='';
+});
+installBtn.addEventListener('click', async ()=>{
+  if(!deferredPrompt) return;
+  deferredPrompt.prompt();
+  await deferredPrompt.userChoice;
+  deferredPrompt=null; installBtn.style.display='none';
+});
+window.addEventListener('appinstalled', ()=>{ installBtn.style.display='none'; });
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=> navigator.serviceWorker.register('/sw.js').catch(()=>{}));
+}
 setStatus('Idle');
 </script>
 </body>

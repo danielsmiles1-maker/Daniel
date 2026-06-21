@@ -1,6 +1,7 @@
-# Ada — Daniel's personal voice AI agent
+# Daniel Junior — Daniel's personal voice AI agent
 
-A hold-to-talk voice assistant that runs locally. Your browser captures the mic;
+A hold-to-talk voice assistant that runs locally and installs as an app. Your
+browser captures the mic;
 a small Flask server proxies the whole pipeline so your API keys **never touch the
 browser**:
 
@@ -40,6 +41,34 @@ python server.py
 Open <http://localhost:4444>, **hold** the button to talk and release to send — or
 type in the box. Mic capture needs `localhost` (or HTTPS), which this dev server
 provides.
+
+## Install it as an app
+
+Daniel Junior is a **PWA (Progressive Web App)**, so you can install it and launch
+it full-screen like a native app — no browser tabs, its own icon.
+
+- **Desktop (Chrome/Edge):** click **Install** in the header, or the install icon
+  in the address bar.
+- **Android (Chrome):** menu → *Add to Home screen* / *Install app*.
+- **iOS (Safari):** Share → *Add to Home Screen*.
+
+It also caches its shell so it opens instantly and survives a flaky connection
+(the voice/chat itself still needs the network and your API keys).
+
+> To use it as an app on your **phone**, the page must be served over HTTPS (or
+> `localhost`). Easiest path: run the server on your machine and expose it with a
+> tunnel like `cloudflared tunnel --url http://localhost:4444` or `ngrok http 4444`,
+> then open the HTTPS URL on your phone and install from there.
+
+### Regenerating the app icons
+
+The icons in `static/` are committed, so you don't need anything extra to run the
+app. To change them, edit and run the generator (needs Pillow):
+
+```bash
+pip install pillow
+python generate_icons.py
+```
 
 ## Personalise
 
