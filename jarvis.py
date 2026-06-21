@@ -58,7 +58,7 @@ _load_dotenv()
 # ───────────────────────────── Config ──────────────────────────────
 PORT = 4444
 NAME = "JARVIS"                       # rename freely; one constant
-VOICE = "aura-2-theia-en"             # Deepgram Aura-2 "Theia"
+VOICE = "aura-2-athena-en"            # Deepgram Aura-2 "Athena" — British female (swap to aura-2-theia-en for US female)
 MODEL = "claude-sonnet-4-6"           # claude-opus-4-8 for depth, haiku for speed
 STT_MODEL = "nova-3"
 ENABLE_WEB_SEARCH = True
@@ -105,7 +105,8 @@ SYSTEM_PROMPT = (
     "tasks rather than describing what you would do.\n"
     "- You are spoken aloud: keep replies to 2-4 sentences, no markdown, no bullets. "
     "Summarise tool output; never read raw command dumps or long URLs aloud.\n"
-    "- Be direct and quick-witted; skip filler and excessive caveats. You can disagree.\n"
+    "- Speak in British English — natural British idiom and spelling, dry and quick-witted. "
+    "Skip filler and excessive caveats. You can disagree.\n"
     "- Prefer the file tools for editing; use the shell for navigation and system tasks.\n"
     "- You may also have connectors (email, calendar, files) available as tools; use them "
     "when the request calls for it.\n"

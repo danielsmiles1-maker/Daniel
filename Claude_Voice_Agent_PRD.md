@@ -6,7 +6,7 @@
 | **Product** | Claude — voice-first local agent |
 | **Owner** | Daniel Smiles |
 | **Status** | Draft v0.1 (for build) |
-| **Voice stack** | Deepgram Nova-3 (STT) → Anthropic Claude (reasoning) → Deepgram Aura-2 `theia` (TTS) |
+| **Voice stack** | Deepgram Nova-3 (STT) → Anthropic Claude (reasoning) → Deepgram Aura-2 `athena` (British female TTS) |
 | **Classification** | Personal — Confidential |
 | **Last updated** | 20 June 2026 |
 
@@ -16,7 +16,7 @@
 
 ## 1. TL;DR
 
-A always-available, voice-first personal agent that runs on your local machine, speaks in the Deepgram Aura-2 **Theia** voice, holds a real back-and-forth conversation, answers questions by pulling live information from the web, and — in staged, permission-gated phases — reads and edits your files, then reaches into your calendar, email, and Stripe. The hard part is **not** the voice loop (that's a weekend). The hard part is the **trust boundary**: what leaves your machine, what gets redacted before it does, what the agent is allowed to *do* versus merely *propose*, and proving after the fact exactly what it did. This PRD treats that boundary as the primary feature, not an afterthought — the same control discipline you'd apply to a consolidation, applied to an agent.
+A always-available, voice-first personal agent that runs on your local machine, speaks in the Deepgram Aura-2 **Athena** voice (British female), holds a real back-and-forth conversation, answers questions by pulling live information from the web, and — in staged, permission-gated phases — reads and edits your files, then reaches into your calendar, email, and Stripe. The hard part is **not** the voice loop (that's a weekend). The hard part is the **trust boundary**: what leaves your machine, what gets redacted before it does, what the agent is allowed to *do* versus merely *propose*, and proving after the fact exactly what it did. This PRD treats that boundary as the primary feature, not an afterthought — the same control discipline you'd apply to a consolidation, applied to an agent.
 
 ---
 
@@ -146,8 +146,8 @@ Format: **FR-x** with acceptance criteria. P0 unless noted.
   - *Given* the mic is idle, *when* no wake word is detected, *then* no audio is sent to STT.
 - **FR-2 STT via Nova-3.** Captured speech is transcribed with `model=nova-3`, `smart_format=true`, `punctuate=true`.
   - *Then* alphanumerics, currency, and dates are smart-formatted (e.g. "R one point two billion" → "R1.2bn") so financial terms transcribe cleanly.
-- **FR-3 TTS via Aura-2 Theia.** Replies are spoken with `model=aura-2-theia-en` (REST default linear16/wav/24 kHz).
-  - *Then* the voice matches the uploaded sample; **VOICE is a single config constant** so it can be swapped (incl. to a British Aura voice — see §14).
+- **FR-3 TTS via Aura-2 Athena (British female).** Replies are spoken with `model=aura-2-athena-en` (REST default linear16/wav/24 kHz).
+  - *Then* the voice is British female per the original brief; **VOICE is a single config constant** so it can be swapped (e.g. to `aura-2-theia-en` US female — see §14).
 - **FR-4 Brevity for voice.** Spoken replies default to 2–4 sentences; longer content is summarised aloud and rendered in full on screen.
 - **FR-5 Barge-in** *(P1).* The user can interrupt mid-speech; the agent stops talking immediately and listens. *(Aura-2 + Nova-3 support interruption/end-of-thought; MVP may speak-then-listen, P1 adds true barge-in.)*
 - **FR-6 Graceful no-input.** Silence/timeout → the agent returns to idle without error; "didn't catch that" only when speech was detected but not understood.
@@ -318,7 +318,7 @@ The part you explicitly asked for. Grouped, each with required handling. (Accept
 |---|---|---|
 | **STT** | **Deepgram Nova-3** (REST `/v1/listen`, `smart_format`, `punctuate`) | Same infra as Aura-2; strong on alphanumerics/financial terms. On-prem option exists if data sensitivity rises |
 | **Reasoning** | **Anthropic Claude** via Messages API, with server-side `web_search` | Conversation: a fast model (e.g. `claude-haiku-4-5` or `claude-sonnet-4-6`) for latency; bump to `claude-opus-4-8` for heavy reasoning. Single `MODEL` constant |
-| **TTS** | **Deepgram Aura-2 `theia`** (REST `/v1/speak`, default linear16/wav/24 kHz) | Matches your uploaded sample. `VOICE` is one constant — swap to a British Aura voice if you revert to the British brief (§14) |
+| **TTS** | **Deepgram Aura-2 `athena`** (British female; REST `/v1/speak`, default linear16/wav/24 kHz) | The original British brief. `VOICE` is one constant — swap to `aura-2-theia-en` (US female) or another Aura voice anytime (§14) |
 | **Audio I/O** | `speech_recognition` (mic + VAD) + `pygame` (playback) | MVP-grade; production could move to a streaming WebSocket pipeline (Deepgram streaming STT + TTS) for true barge-in |
 | **Orchestrator** | Local Python process (agent loop, state, gates) | Keep tool layer pluggable so new MCP connectors are config, not code |
 | **Integrations** | **MCP servers + OAuth on-behalf-of**; local filesystem tool | Tokens in an encrypted local vault |
@@ -333,7 +333,7 @@ A streaming WebSocket pipeline (Deepgram's Speak/Listen sockets, and their Voice
 
 | # | Question | Owner |
 |---|---|---|
-| Q1 | **Theia (American) vs the British accent you originally asked for.** Theia is confirmed American. Keep Theia, or swap to a British Aura voice (Aura-1 has confirmed British voices, e.g. `aura-athena-en` female / `aura-helios-en` male; check Deepgram's docs for current Aura-2 en-GB options)? | You |
+| Q1 | ~~Theia (American) vs British accent~~ **RESOLVED:** defaulting to `aura-2-athena-en` (British female), matching the original brief. `aura-2-theia-en` (US female) remains a one-line swap; `aura-2-helios-en` is the British male option. | ✅ Daniel |
 | Q2 | Wake word — distinct from "Claude" to avoid the model/agent naming collision? (Recommend yes.) | You |
 | Q3 | Boundary classification ceiling (R-2) — how permissive for personal use, and the exact bar for Maziv data (recommend: hard-bar Maziv-Confidential+). | You |
 | Q4 | Conversation latency vs depth — default to Haiku for snappy talk, escalate to Opus on hard questions automatically? | Eng |
@@ -369,7 +369,7 @@ A streaming WebSocket pipeline (Deepgram's Speak/Listen sockets, and their Voice
 - [ ] Multi-turn conversation with memory and discussion mode
 - [ ] `web_search`-backed answers, bottom-line first, sources on screen
 - [ ] Read-only file access within an allow-list; confirm outside it
-- [ ] Aura-2 Theia TTS, voice as a single config constant
+- [ ] Aura-2 Athena (British female) TTS, voice as a single config constant
 - [ ] Every failure mode in §11.4 has defined, non-hanging behaviour
 - [ ] Audit log captures every turn
 

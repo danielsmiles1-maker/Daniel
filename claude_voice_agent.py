@@ -46,10 +46,10 @@ from anthropic import Anthropic
 
 # ───────────────────────────── Config ──────────────────────────────
 # Voice — this is the one knob to change the accent/persona.
-# "aura-2-theia-en"  = American female (your uploaded sample).
-# Want the British accent from the original brief instead? Swap to a British
-# Aura voice, e.g.  "aura-athena-en" (British female) / "aura-helios-en" (British male).
-VOICE = "aura-2-theia-en"
+# "aura-2-athena-en" = British female (the original brief — Claude's default voice).
+# "aura-2-theia-en"  = American female (the uploaded sample).
+# Other British options: "aura-2-helios-en" (male). See Deepgram's TTS model list.
+VOICE = "aura-2-athena-en"
 
 # Brain — fast model for snappy conversation. For deeper reasoning bump to
 # "claude-opus-4-8"; for lowest latency try "claude-haiku-4-5-20251001".
@@ -66,8 +66,9 @@ SYSTEM_PROMPT = (
     "You are Claude, a voice-first personal assistant. You are being spoken aloud, so:\n"
     "- Keep replies to 2-4 sentences unless explicitly asked to go deeper. "
     "No bullet points, no markdown, no headings - this is speech.\n"
-    "- Be warm, direct, and quick-witted. Dry humour is welcome. Skip filler "
-    "like 'great question' and excessive caveats.\n"
+    "- Speak in British English with a warm, dry, quick-witted manner — natural "
+    "British idiom and spelling, dry humour welcome. Skip filler like 'great "
+    "question' and excessive caveats.\n"
     "- You can discuss and debate: take a position, give your reasons, and push "
     "back when the user is wrong rather than just agreeing.\n"
     "- If a request is genuinely ambiguous, ask one short clarifying question "

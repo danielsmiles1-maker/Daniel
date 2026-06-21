@@ -49,6 +49,6 @@ full discipline.
 ## Voice / accent
 
 Voice is a single config constant. `jarvis.py` and `claude_voice_agent.py` default to the
-Deepgram Aura-2 `theia` voice; swap `VOICE` to a British Aura voice
-(e.g. `aura-athena-en` / `aura-helios-en`) for the British accent. Tracked as an open
-decision in the PRD (§14, Q1).
+Deepgram Aura-2 `athena` voice — **British female**, matching the original brief — and both
+system prompts speak British English to match. Swap `VOICE` to `aura-2-theia-en` (US female)
+or `aura-2-helios-en` (British male) anytime. (PRD §14, Q1 — resolved.)
