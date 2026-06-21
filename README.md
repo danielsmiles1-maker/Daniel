@@ -27,20 +27,59 @@ pip install -r requirements.txt
 cp .env.example .env        # then fill in your keys
 export DEEPGRAM_API_KEY="dg_..."
 export ANTHROPIC_API_KEY="sk-ant-..."
+
+# Login — pick a password and a stable cookie-signing key:
+export APP_PASSWORD="choose-a-password"
+export SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
 ```
 
 Get keys from [console.deepgram.com](https://console.deepgram.com) and
 [console.anthropic.com](https://console.anthropic.com).
 
-## Run
+## Run (web)
 
 ```bash
 python server.py
 ```
 
-Open <http://localhost:4444>, **hold** the button to talk and release to send — or
-type in the box. Mic capture needs `localhost` (or HTTPS), which this dev server
-provides.
+Open <http://localhost:4444>, **sign in**, then **hold** the button to talk and
+release to send — or type in the box. Mic capture needs `localhost` (or HTTPS),
+which this dev server provides.
+
+## Run as a desktop app
+
+Wraps the same app in a native window (via `pywebview`) — no browser, no Node,
+no Electron:
+
+```bash
+pip install -r requirements-desktop.txt    # one-time, in addition to requirements.txt
+python desktop.py
+```
+
+On Linux you also need the system GTK WebView: `sudo apt install python3-gi
+gir1.2-webkit2-4.1`. Windows uses Edge WebView2; macOS uses the built-in WKWebView.
+Grant microphone access when the OS webview prompts.
+
+## Login
+
+The app is protected by a username + password (hashed; never stored in plaintext),
+backed by a signed server-side session.
+
+| Variable             | Purpose                                                              |
+| -------------------- | ------------------------------------------------------------------- |
+| `APP_USERNAME`       | Login name (default `daniel`).                                      |
+| `APP_PASSWORD`       | Your password — hashed once at startup.                            |
+| `APP_PASSWORD_HASH`  | Alternative: a pre-computed Werkzeug hash (plaintext never in env). |
+| `SECRET_KEY`         | Signs the session cookie. Set a fixed value so logins persist across restarts. |
+| `SESSION_COOKIE_SECURE` | Set to `1` when serving over HTTPS.                              |
+
+If you don't set a password, a **temporary one is printed to the console** at
+startup so you can still log in. To generate a password hash without putting the
+plaintext in your environment:
+
+```bash
+python -c "from werkzeug.security import generate_password_hash as g; print(g(input('password: ')))"
+```
 
 ## Install it as an app
 

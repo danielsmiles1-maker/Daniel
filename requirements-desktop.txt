@@ -1,0 +1,7 @@
+# Desktop app launcher (optional — only needed for `python desktop.py`).
+# Uses the OS-native webview, so no Node/Electron toolchain is required.
+#   Linux  : also needs system GTK WebKit, e.g.
+#            sudo apt install python3-gi gir1.2-webkit2-4.1
+#   Windows: uses Edge WebView2 (preinstalled on Win 11)
+#   macOS  : uses the built-in WKWebView
+pywebview>=5.0

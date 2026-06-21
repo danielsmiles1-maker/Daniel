@@ -25,9 +25,13 @@ Run
 import os
 import json
 import base64
+import secrets
+from functools import wraps
 
 import requests
-from flask import Flask, request, jsonify, Response
+from flask import (Flask, request, jsonify, Response,
+                   session, redirect, abort)
+from werkzeug.security import generate_password_hash, check_password_hash
 from anthropic import Anthropic
 
 # ───────────────────────────── Config ──────────────────────────────
@@ -59,6 +63,57 @@ SYSTEM_PROMPT = (
 )
 
 app = Flask(__name__)
+
+
+# ───────────────────────────── Auth ────────────────────────────────
+# Session signing key. Set SECRET_KEY in the environment so logins survive a
+# restart; otherwise we generate an ephemeral one (you'll just have to log in
+# again after each restart).
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    SECRET_KEY = secrets.token_hex(32)
+    print("  [auth] No SECRET_KEY set — using a temporary one (sessions reset on restart).")
+app.secret_key = SECRET_KEY
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    # Set SESSION_COOKIE_SECURE=1 when serving over HTTPS (recommended in prod).
+    SESSION_COOKIE_SECURE=bool(os.getenv("SESSION_COOKIE_SECURE")),
+)
+
+APP_USERNAME = os.getenv("APP_USERNAME", "daniel")
+
+# Password resolution (most secure first):
+#   APP_PASSWORD_HASH  — a werkzeug hash (best; the plaintext never touches env)
+#   APP_PASSWORD       — plaintext, hashed once at startup
+#   neither            — generate a random one and print it so you can log in
+if os.getenv("APP_PASSWORD_HASH"):
+    PASSWORD_HASH = os.getenv("APP_PASSWORD_HASH")
+elif os.getenv("APP_PASSWORD"):
+    PASSWORD_HASH = generate_password_hash(os.getenv("APP_PASSWORD"))
+else:
+    _temp_pw = secrets.token_urlsafe(9)
+    PASSWORD_HASH = generate_password_hash(_temp_pw)
+    print(f"  [auth] No APP_PASSWORD set — temporary login for this run:\n"
+          f"        username: {APP_USERNAME}\n"
+          f"        password: {_temp_pw}\n"
+          f"        (set APP_PASSWORD or APP_PASSWORD_HASH to make it permanent)")
+
+
+def login_required(view):
+    """Gate a route behind a logged-in session.
+
+    Browser navigations get redirected to /login; API (XHR/fetch) calls get a
+    401 JSON so the front-end can react instead of rendering HTML into JSON.
+    """
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if session.get("user") == APP_USERNAME:
+            return view(*args, **kwargs)
+        if request.path.startswith("/api/"):
+            return jsonify(error="Not authenticated.", login_required=True), 401
+        return redirect("/login")
+    return wrapped
 
 
 # ──────────────────────────── Memory ───────────────────────────────
@@ -124,7 +179,34 @@ def ask_claude(messages):
 
 
 # ──────────────────────────── Routes ───────────────────────────────
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if session.get("user") == APP_USERNAME:
+        return redirect("/")
+    error = ""
+    if request.method == "POST":
+        username = (request.form.get("username") or "").strip()
+        password = request.form.get("password") or ""
+        if username == APP_USERNAME and check_password_hash(PASSWORD_HASH, password):
+            session.clear()
+            session["user"] = APP_USERNAME
+            session.permanent = True
+            return redirect("/")
+        error = "Wrong username or password."
+    html = (LOGIN_HTML
+            .replace("__NAME__", ASSISTANT_NAME)
+            .replace("__ERROR__", error))
+    return Response(html, mimetype="text/html")
+
+
+@app.post("/logout")
+def logout():
+    session.clear()
+    return redirect("/login")
+
+
 @app.get("/")
+@login_required
 def index():
     html = (INDEX_HTML
             .replace("__VOICE__", VOICE)
@@ -172,6 +254,7 @@ def health():
 
 
 @app.post("/api/reset")
+@login_required
 def reset():
     history.clear()
     save_history()
@@ -179,6 +262,7 @@ def reset():
 
 
 @app.post("/api/converse")
+@login_required
 def converse():
     if not os.getenv("DEEPGRAM_API_KEY") or not os.getenv("ANTHROPIC_API_KEY"):
         return jsonify(error="Set DEEPGRAM_API_KEY and ANTHROPIC_API_KEY, then restart the server."), 400
@@ -215,7 +299,7 @@ def converse():
 # App-shell service worker: cache static assets + the shell for offline launch;
 # never cache the live API (voice/chat must hit the network).
 SERVICE_WORKER_JS = r"""
-const CACHE = 'dj-shell-v1';
+const CACHE = 'dj-shell-v2';
 const ASSETS = [
   '/', '/manifest.webmanifest',
   '/static/icon-192.png', '/static/icon-512.png',
@@ -243,8 +327,11 @@ self.addEventListener('fetch', e => {
     // Network-first for the shell so updates show; fall back to cache offline.
     e.respondWith(
       fetch(req).then(res => {
-        const copy = res.clone();
-        caches.open(CACHE).then(c => c.put('/', copy));
+        // Only cache the real app shell — never a login redirect/page.
+        if (res.ok && !res.redirected) {
+          const copy = res.clone();
+          caches.open(CACHE).then(c => c.put('/', copy));
+        }
         return res;
       }).catch(() => caches.match('/'))
     );
@@ -255,6 +342,54 @@ self.addEventListener('fetch', e => {
   e.respondWith(caches.match(req).then(hit => hit || fetch(req)));
 });
 """
+
+LOGIN_HTML = r"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__NAME__ · sign in</title>
+<meta name="theme-color" content="#2D1238">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{ --royal:#3D1B4F; --magenta:#C8378F; --deep:#2D1238; --ink:#EDE7F0; --muted:#9B8AA6; }
+  *{box-sizing:border-box}
+  body{
+    margin:0; min-height:100vh; color:var(--ink); font-family:"JetBrains Mono",ui-monospace,monospace;
+    background:radial-gradient(1200px 600px at 50% -10%, #43204f 0%, var(--deep) 55%, #160a1d 100%);
+    display:flex; align-items:center; justify-content:center; padding:24px;
+  }
+  .card{ width:100%; max-width:360px; text-align:center; }
+  .logo{ width:84px; height:84px; border-radius:22px; margin:0 auto 18px; display:block; box-shadow:0 10px 30px rgba(200,55,143,.35); }
+  h1{ font-family:"Bebas Neue",sans-serif; font-weight:400; font-size:40px; letter-spacing:2px; margin:0 0 4px; }
+  h1 .dot{ color:var(--magenta); }
+  .sub{ font-size:11px; color:var(--muted); letter-spacing:.5px; margin-bottom:22px; }
+  form{ display:flex; flex-direction:column; gap:10px; }
+  input{ background:#1f0f29; border:1px solid #5a3a68; color:var(--ink); font-family:inherit; font-size:14px; padding:12px 14px; border-radius:10px; }
+  input:focus{ outline:none; border-color:var(--magenta); }
+  button{ background:radial-gradient(circle at 30% 25%, #e24fa6, var(--magenta) 60%, var(--royal)); border:none; color:#fff; font-family:"Bebas Neue",sans-serif; letter-spacing:1px; font-size:18px; padding:12px; border-radius:10px; cursor:pointer; box-shadow:0 8px 24px rgba(200,55,143,.35); }
+  button:hover{ transform:translateY(-1px); }
+  .err{ color:#ffb3c7; font-size:12px; min-height:16px; margin-top:6px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <img class="logo" src="/static/icon-192.png" alt="">
+    <h1>__NAME__<span class="dot">.</span></h1>
+    <div class="sub">personal voice agent · sign in to continue</div>
+    <form method="post" action="/login" autocomplete="on">
+      <input name="username" type="text" placeholder="Username" autocomplete="username" autofocus required>
+      <input name="password" type="password" placeholder="Password" autocomplete="current-password" required>
+      <button type="submit">SIGN&nbsp;IN</button>
+    </form>
+    <div class="err">__ERROR__</div>
+  </div>
+</body>
+</html>"""
 
 INDEX_HTML = r"""<!doctype html>
 <html lang="en">
@@ -331,6 +466,7 @@ INDEX_HTML = r"""<!doctype html>
       <span id="status" class="pill">Idle</span>
       <button id="install" class="btn-ghost" style="display:none">Install</button>
       <button id="reset" class="btn-ghost">Reset</button>
+      <button id="logout" class="btn-ghost">Logout</button>
     </div>
   </header>
 
@@ -407,6 +543,7 @@ async function send(fd){
   busy=true; setStatus('Thinking…','think');
   try{
     const r=await fetch('/api/converse',{method:'POST', body:fd});
+    if(r.status===401){ location.href='/login'; return; }
     const data=await r.json();
     if(data.error){ addBubble('claude','⚠️ '+data.error); setStatus('Idle'); busy=false; return; }
     if(data.user_text) addBubble('you', data.user_text);
@@ -432,7 +569,12 @@ talkBtn.addEventListener('pointerleave',()=>{ if(recorder && recorder.state==='r
 document.getElementById('sendText').addEventListener('click', sendText);
 textInput.addEventListener('keydown', e=>{ if(e.key==='Enter') sendText(); });
 document.getElementById('reset').addEventListener('click', async ()=>{
-  await fetch('/api/reset',{method:'POST'}); log.innerHTML=''; setStatus('Idle');
+  const r=await fetch('/api/reset',{method:'POST'});
+  if(r.status===401){ location.href='/login'; return; }
+  log.innerHTML=''; setStatus('Idle');
+});
+document.getElementById('logout').addEventListener('click', ()=>{
+  fetch('/logout',{method:'POST'}).finally(()=>{ location.href='/login'; });
 });
 
 // ── Installable app (PWA) ──
