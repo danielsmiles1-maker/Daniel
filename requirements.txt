@@ -2,3 +2,4 @@ flask>=3.0
 werkzeug>=3.0        # bundled with Flask; used for password hashing
 anthropic>=0.40
 requests>=2.31
+python-dotenv>=1.0  # auto-load a .env file (optional; app works without it)

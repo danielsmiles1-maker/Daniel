@@ -23,6 +23,7 @@ Run
 """
 
 import os
+import sys
 import json
 import base64
 import secrets
@@ -33,6 +34,24 @@ from flask import (Flask, request, jsonify, Response,
                    session, redirect, abort)
 from werkzeug.security import generate_password_hash, check_password_hash
 from anthropic import Anthropic
+
+# Load config from a .env file if present — both the working directory and (when
+# packaged as a standalone executable) the folder next to the binary. This is how
+# the frozen app gets its keys/password, since a double-click has no shell env.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    if getattr(sys, "frozen", False):
+        load_dotenv(os.path.join(os.path.dirname(sys.executable), ".env"))
+except ImportError:
+    pass
+
+
+def resource_base():
+    """Directory that holds bundled data (static/). Differs when frozen."""
+    if getattr(sys, "frozen", False):
+        return sys._MEIPASS          # PyInstaller extraction dir
+    return os.path.dirname(os.path.abspath(__file__))
 
 # ───────────────────────────── Config ──────────────────────────────
 PORT = int(os.getenv("PORT", "4444"))
@@ -62,7 +81,9 @@ SYSTEM_PROMPT = (
     "it matters. Don't read out long URLs."
 )
 
-app = Flask(__name__)
+app = Flask(__name__,
+            static_folder=os.path.join(resource_base(), "static"),
+            static_url_path="/static")
 
 
 # ───────────────────────────── Auth ────────────────────────────────

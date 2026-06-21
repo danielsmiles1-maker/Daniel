@@ -23,17 +23,20 @@ browser plays ◄── WAV audio ◄──── Deepgram Aura-2 "Theia" (text 
 
 ```bash
 pip install -r requirements.txt
-
-cp .env.example .env        # then fill in your keys
-export DEEPGRAM_API_KEY="dg_..."
-export ANTHROPIC_API_KEY="sk-ant-..."
-
-# Login — pick a password and a stable cookie-signing key:
-export APP_PASSWORD="choose-a-password"
-export SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+cp .env.example .env        # then fill it in — it's auto-loaded at startup
 ```
 
-Get keys from [console.deepgram.com](https://console.deepgram.com) and
+Fill `.env` with your keys plus a login password and a stable cookie-signing key:
+
+```ini
+DEEPGRAM_API_KEY=dg_...
+ANTHROPIC_API_KEY=sk-ant-...
+APP_PASSWORD=choose-a-password
+SECRET_KEY=<run: python -c "import secrets; print(secrets.token_hex(32))">
+```
+
+(Exporting them as shell environment variables works too.) Get keys from
+[console.deepgram.com](https://console.deepgram.com) and
 [console.anthropic.com](https://console.anthropic.com).
 
 ## Run (web)
@@ -59,6 +62,35 @@ python desktop.py
 On Linux you also need the system GTK WebView: `sudo apt install python3-gi
 gir1.2-webkit2-4.1`. Windows uses Edge WebView2; macOS uses the built-in WKWebView.
 Grant microphone access when the OS webview prompts.
+
+### Build a standalone executable
+
+Bundle the desktop app into a single double-clickable file with PyInstaller:
+
+```bash
+pip install -r requirements.txt -r requirements-desktop.txt
+python build_desktop.py          # or: pyinstaller DanielJunior.spec --noconfirm
+```
+
+The binary lands in `dist/` — `DanielJunior` (Linux), `DanielJunior.exe`
+(Windows), or `DanielJunior.app` (macOS). The icons are bundled in, so it runs
+standalone.
+
+> **Build on the OS you want to ship to** — PyInstaller does not cross-compile.
+>
+> **Ship a `.env` next to the executable.** A double-launched app has no shell
+> environment, so the packaged build reads its keys and login from a `.env` file
+> placed beside the binary. Minimal example:
+>
+> ```ini
+> DEEPGRAM_API_KEY=dg_...
+> ANTHROPIC_API_KEY=sk-ant-...
+> APP_PASSWORD=your-password
+> SECRET_KEY=<run: python -c "import secrets; print(secrets.token_hex(32))">
+> ```
+>
+> Without `APP_PASSWORD` the app generates a temporary password — but the
+> windowed build has no console to print it to, so set one in `.env`.
 
 ## Login
 

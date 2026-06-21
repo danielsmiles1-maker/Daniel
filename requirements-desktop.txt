@@ -5,3 +5,4 @@
 #   Windows: uses Edge WebView2 (preinstalled on Win 11)
 #   macOS  : uses the built-in WKWebView
 pywebview>=5.0
+pyinstaller>=6.0       # build-time only: bundles desktop.py into one executable

@@ -56,3 +56,7 @@ if __name__ == "__main__":
     make(512, "static/icon-512.png")
     make(512, "static/icon-maskable-512.png", maskable=True)
     make(180, "static/apple-touch-icon.png")
+    # Windows .ico for the packaged desktop executable (multi-resolution).
+    Image.open("static/icon-512.png").save(
+        "static/icon.ico", sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+    print("wrote static/icon.ico")
